@@ -1,0 +1,103 @@
+from django.shortcuts import render
+from rest_framework.views import APIView
+from rest_framework.generics import ListAPIView, RetrieveAPIView
+from rest_framework import status
+from rest_framework.response import Response
+from .models import Portfolio, Position, Trade
+from .serializers import PortfolioSerializer, TradeSerializer, PositionSerializer
+from decimal import Decimal
+# Create your views here.
+
+class BuyView(APIView):
+    def post(self, request):
+        ticker = request.data.get("ticker")
+        price = Decimal(request.data.get("price"))
+        qty = Decimal(request.data.get("qty"))
+
+        cost = price*qty
+        user = self.request.user
+        try:
+            portfolio = Portfolio.objects.get(owner = user)
+            if portfolio.cash < cost:
+                raise ValueError("Insufficient Funds")
+            position, created = Position.objects.get_or_create(
+                portfolio= portfolio,
+                ticker= ticker,
+                defaults= {"qty" : 0, "avg_price": 0},
+            )
+            position.avg_price = (position.avg_price*position.qty + cost)/(qty + position.qty)
+            position.qty += qty
+            position.save()
+
+            portfolio.cash -= cost
+            portfolio.save()
+
+            Trade.objects.create(
+                portfolio= portfolio,
+                ticker= ticker,
+                action= "BUY",
+                qty= qty,
+                price= price,
+            )
+            return Response({"status" : "ok", "cash" : portfolio.cash}, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Portfolio.DoesNotExist:
+            return Response({"error": "Portfolio Not Found"}, status=status.HTTP_404_NOT_FOUND)
+
+class SellView(APIView):
+    def post(self, request):
+        ticker = request.data.get("ticker")
+        qty = Decimal(request.data.get("qty"))
+        price = Decimal(request.data.get("price"))
+
+        amt = price*qty
+        user = self.request.user
+        try:
+            portfolio = Portfolio.objects.get(owner = user)
+            position = Position.objects.get(portfolio = portfolio, ticker= ticker)
+            if position.qty < qty:
+                raise ValueError("Insufficient Shares")
+            position.qty -= qty
+            if position.qty == 0:
+                position.delete()
+            else:
+                position.save()
+
+            portfolio.cash += amt
+            portfolio.save()
+
+            Trade.objects.create(
+                portfolio= portfolio,
+                ticker= ticker,
+                action= "SELL",
+                qty= qty,
+                price= price,
+            )
+            return Response({"status": "ok", "cash": portfolio.cash}, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Portfolio.DoesNotExist:
+            return Response({"error": "Portfolio Not Found"}, status=status.HTTP_404_NOT_FOUND)
+        except Position.DoesNotExist:
+            return Response({"error": "Position Not Found"}, status=status.HTTP_404_NOT_FOUND)
+
+class TransactionView(ListAPIView):
+    serializer_class = TradeSerializer
+
+    def get_queryset(self):
+        portfolio = Portfolio.objects.get(owner= self.request.user)
+        return Trade.objects.filter(portfolio= portfolio).order_by("-created_at")
+    
+class PortfolioView(RetrieveAPIView):
+    serializer_class = PortfolioSerializer
+
+    def get_object(self):
+        return Portfolio.objects.get(owner= self.request.user)
+    
+class PositionView(ListAPIView):
+    serializer_class = PositionSerializer
+
+    def get_queryset(self):
+        portfolio = Portfolio.objects.get(owner= self.request.user)
+        return Position.objects.filter(portfolio= portfolio)
