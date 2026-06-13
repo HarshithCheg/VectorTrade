@@ -1,9 +1,17 @@
 from django.db import models
-from django.contrib.auth.models import User
+from django.contrib.auth.models import AbstractUser
 import uuid
 
 # Create your models here.
 ACTION_CHOICES = [("BUY", "Buy"), ("SELL", "Sell")]
+
+class User(AbstractUser):
+    uid = models.UUIDField(default= uuid.uuid4, editable= False, unique=True)
+    first_name = models.CharField(max_length=150, blank= False, null= False)
+    last_name = models.CharField(max_length=150, blank= False, null= False)
+    email = models.EmailField(blank= False, null= False)
+    username = models.CharField(max_length=50, blank= False, null= False, unique=True)
+
 class Portfolio(models.Model):
     uid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="owner")

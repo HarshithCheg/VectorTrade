@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Portfolio, Position, Trade
+from .models import Portfolio, Position, Trade, User
 
 class PortfolioSerializer(serializers.ModelSerializer):
     class Meta:
@@ -17,3 +17,38 @@ class TradeSerializer(serializers.ModelSerializer):
         model = Trade
         fields = ('uid', 'portfolio', 'ticker', 'action', 'qty', 'price', 'created_at',)
         read_only_fields = ('created_at',)
+
+class RegisterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ('uid', 'first_name', 'last_name', 'email', 'username', 'password', 'date_joined',)
+        read_only_fields = ('uid', 'date_joined')
+        extra_kwargs = {
+            'password': {'write_only': True}
+        }
+    def create(self, validated_data):
+        password = validated_data.pop('password', None)
+        user = User(**validated_data)
+        if password is not None:
+            user.set_password(password)
+            user.save()
+        else:
+            raise serializers.ValidationError("Enter a Valid Password.")
+        return user        
+
+class LoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField()
+
+    def validate(self, data):
+        username = data['username']
+        password = data['password']
+        try:
+            user = User.objects.get(username= username)
+            if not user.check_password(password):
+                raise serializers.ValidationError("Incorrect Password")
+        except User.DoesNotExist:
+            raise serializers.ValidationError("Username Does Not Exist")
+        
+        return user
+        

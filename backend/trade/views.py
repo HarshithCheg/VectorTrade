@@ -1,14 +1,18 @@
 from django.shortcuts import render
+from django.core.exceptions import ValidationError
 from rest_framework.views import APIView
-from rest_framework.generics import ListAPIView, RetrieveAPIView
+from rest_framework.generics import ListAPIView, RetrieveAPIView, CreateAPIView
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Portfolio, Position, Trade
-from .serializers import PortfolioSerializer, TradeSerializer, PositionSerializer
+from .serializers import PortfolioSerializer, TradeSerializer, PositionSerializer, LoginSerializer, RegisterSerializer
 from decimal import Decimal
 # Create your views here.
 
 class BuyView(APIView):
+    permission_classes = [IsAuthenticated]
     def post(self, request):
         ticker = request.data.get("ticker")
         price = Decimal(request.data.get("price"))
@@ -46,6 +50,7 @@ class BuyView(APIView):
             return Response({"error": "Portfolio Not Found"}, status=status.HTTP_404_NOT_FOUND)
 
 class SellView(APIView):
+    permission_classes = [IsAuthenticated]
     def post(self, request):
         ticker = request.data.get("ticker")
         qty = Decimal(request.data.get("qty"))
@@ -84,20 +89,53 @@ class SellView(APIView):
 
 class TransactionView(ListAPIView):
     serializer_class = TradeSerializer
-
+    permission_classes = [IsAuthenticated]
     def get_queryset(self):
         portfolio = Portfolio.objects.get(owner= self.request.user)
         return Trade.objects.filter(portfolio= portfolio).order_by("-created_at")
     
 class PortfolioView(RetrieveAPIView):
     serializer_class = PortfolioSerializer
-
+    permission_classes = [IsAuthenticated]
     def get_object(self):
         return Portfolio.objects.get(owner= self.request.user)
     
 class PositionView(ListAPIView):
     serializer_class = PositionSerializer
-
+    permission_classes = [IsAuthenticated]
     def get_queryset(self):
         portfolio = Portfolio.objects.get(owner= self.request.user)
         return Position.objects.filter(portfolio= portfolio)
+
+class RegisterView(CreateAPIView):
+    serializer_class = RegisterSerializer
+
+class LogInView(APIView):
+    def post(self, request):
+        try:
+            data = self.request.data
+            serializer = LoginSerializer(data= data)
+            serializer.is_valid(raise_exception=True)
+            user = serializer.validated_data
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                "refresh": str(refresh),
+                "access" : str(refresh.access_token),
+                "uid" : str(user.uid),
+                "username": str(user.username)
+            })
+
+        except Exception as e:
+            raise ValidationError(e)
+        
+class LogOutView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        try:
+            token = RefreshToken(request.data["refresh"])
+            token.blacklist()
+            return Response({"status": "Log-Out Success"}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": e}, status=status.HTTP_400_BAD_REQUEST)
+    
+        
