@@ -82,8 +82,8 @@ class Engine:
                     pass
 
         last_price = {ticker: merged["Close"].iloc[-1]}
-        return (f"Portfolio Value: {self.portfolio_value(last_price)}, "
-            f"Profit/Loss: {self.profit_loss(last_price)}")
+        return {"Portfolio Value": self.portfolio_value(last_price),
+                "Profit/Loss": self.profit_loss(last_price)}
         
 
 if __name__ == "__main__":

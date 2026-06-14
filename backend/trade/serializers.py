@@ -64,3 +64,14 @@ class PredictSerializer(serializers.Serializer):
     #     if start > end:
     #         raise serializers.ValidationError("Start Date Must be before End Date")
     #     return data
+
+class BackTestSerializer(serializers.Serializer):
+    ticker = serializers.CharField()
+    initial_cash = serializers.IntegerField()
+
+    def validate(self, data):
+        ticker = data["ticker"]
+        initCash = data["initial_cash"]
+        if initCash < 0:
+            raise serializers.ValidationError("Initial Cash Must be greater than or equal to Zero")
+        return data

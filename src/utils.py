@@ -7,13 +7,12 @@ from brain import load_data, features, create_labels, train_model
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 FEATURE = ["returns_1d", "returns_5d", "returns_10d", "close_to_sma20", "close_to_sma50", "volatility_10d", "volume_ratio", "hl_range", "rsi_14"]
-
+TICKER = "GOOGL" # only needed if you will be using just src without backend.
 
 def predict(model, X_test, df):
     prediction = model.predict(X_test)
     dates = df.loc[X_test.index, "Date"]
     result = pd.DataFrame({"Date": dates, "Predicted": prediction})
-    print(result.tail(10))
     return result
 
 _model_cache = {}

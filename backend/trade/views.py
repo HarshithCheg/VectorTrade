@@ -7,9 +7,10 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Portfolio, Position, Trade
-from .serializers import PortfolioSerializer, TradeSerializer, PositionSerializer, LoginSerializer, RegisterSerializer, PredictSerializer
+from .serializers import PortfolioSerializer, TradeSerializer, PositionSerializer, LoginSerializer, RegisterSerializer, PredictSerializer, BackTestSerializer
 from decimal import Decimal
 from utils import load_model, BASE_DIR
+from engine import Engine
 import pandas as pd
 # Create your views here.
 
@@ -163,3 +164,18 @@ class PredictView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
+class BackTestView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        try:
+            serializer = BackTestSerializer(data= request.data)
+            serializer.is_valid(raise_exception=True)
+            ticker = serializer.validated_data["ticker"]
+            initCash = serializer.validated_data["initial_cash"]
+            engine = Engine(initCash)
+            load_model(ticker= ticker)
+            pred_df = pd.read_csv(BASE_DIR/f"data/pred/{ticker}_pred.csv")
+            price_df = pd.read_csv(BASE_DIR/f"data/price/{ticker}_price.csv") 
+            return Response(engine.run_backtest(pred_df= pred_df, price_df= price_df, ticker= ticker, qty= 10), status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status= status.HTTP_400_BAD_REQUEST)
