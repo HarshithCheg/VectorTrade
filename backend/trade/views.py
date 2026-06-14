@@ -7,8 +7,10 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Portfolio, Position, Trade
-from .serializers import PortfolioSerializer, TradeSerializer, PositionSerializer, LoginSerializer, RegisterSerializer
+from .serializers import PortfolioSerializer, TradeSerializer, PositionSerializer, LoginSerializer, RegisterSerializer, PredictSerializer
 from decimal import Decimal
+from utils import load_model, BASE_DIR
+import pandas as pd
 # Create your views here.
 
 class BuyView(APIView):
@@ -136,6 +138,28 @@ class LogOutView(APIView):
             token.blacklist()
             return Response({"status": "Log-Out Success"}, status=status.HTTP_200_OK)
         except Exception as e:
-            return Response({"error": e}, status=status.HTTP_400_BAD_REQUEST)
-    
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+class PredictView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        try:
+            serializer = PredictSerializer(data= request.data)
+            serializer.is_valid(raise_exception=True)
+            ticker = serializer.validated_data["ticker"]
+            model = load_model(ticker)
+            df = pd.read_csv(BASE_DIR/f"data/pred/{ticker}_pred.csv")
+            latest = df.iloc[-1]
+            signal = ""
+            if latest["Predicted"] == 1:
+                signal = "BUY"
+            else:
+                signal = "SELL"
+            return Response({
+                "ticker": ticker,
+                "date": latest["Date"],
+                "signal": signal
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         

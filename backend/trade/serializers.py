@@ -51,4 +51,16 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Username Does Not Exist")
         
         return user
-        
+    
+class PredictSerializer(serializers.Serializer):
+    ticker = serializers.CharField()
+    # date_start = serializers.DateField()
+    # date_end = serializers.DateField()
+
+    # def validate(self, data):
+    #     ticker = data["ticker"]
+    #     start = data["date_start"]
+    #     end = data["date_end"]
+    #     if start > end:
+    #         raise serializers.ValidationError("Start Date Must be before End Date")
+    #     return data

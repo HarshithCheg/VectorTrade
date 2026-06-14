@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import BuyView, SellView, TransactionView, PortfolioView, PositionView, LogInView, LogOutView, RegisterView
+from .views import BuyView, SellView, TransactionView, PortfolioView, PositionView, LogInView, LogOutView, RegisterView, PredictView
 
 urlpatterns = [
     path('register/', RegisterView.as_view()),
@@ -10,4 +10,5 @@ urlpatterns = [
     path('trades/sell/', SellView.as_view()),
     path('login/', LogInView.as_view()),
     path('logout/', LogOutView.as_view()),
+    path('predict/', PredictView.as_view()),
 ]
