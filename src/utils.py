@@ -12,7 +12,9 @@ TICKER = "GOOGL" # only needed if you will be using just src without backend.
 def predict(model, X_test, df):
     prediction = model.predict(X_test)
     dates = df.loc[X_test.index, "Date"]
-    result = pd.DataFrame({"Date": dates, "Predicted": prediction})
+    proba = model.predict_proba(X_test)
+    confidence = proba[:, 1]
+    result = pd.DataFrame({"Date": dates, "Predicted": prediction, "Confidence": confidence})
     return result
 
 _model_cache = {}
