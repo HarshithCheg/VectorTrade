@@ -5,6 +5,7 @@ import joblib
 from utils import TICKER
 import pandas as pd
 from pathlib import Path
+from scipy.optimize import linprog
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -84,6 +85,10 @@ class Engine:
         last_price = {ticker: merged["Close"].iloc[-1]}
         return {"Portfolio Value": self.portfolio_value(last_price),
                 "Profit/Loss": self.profit_loss(last_price)}
+    
+    def backtest(self, pred_df, price_df, ticker, holding):
+        
+        return 1
         
 
 if __name__ == "__main__":
