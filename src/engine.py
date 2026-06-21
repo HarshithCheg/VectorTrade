@@ -65,7 +65,7 @@ class Engine:
     def debitCash(self, amount):
         self.cash -= amount
 
-    def run_backtest(self, pred_df, price_df, ticker, qty = 10):
+    def run_backtest(self, pred_df, price_df, ticker):
         price_df["Date"] = pd.to_datetime(price_df["Date"])
         pred_df["Date"] = pd.to_datetime(pred_df["Date"])
         merged = pd.merge(price_df, pred_df, how="inner", on="Date")
@@ -73,12 +73,12 @@ class Engine:
         for row in merged.itertuples():
             if row.Predicted == 1:
                 try:
-                    self.buy(ticker, row.Close, qty)
+                    self.buy(ticker, row.Close, (self.cash//row.Close))
                 except ValueError:
                     pass
             elif row.Predicted == 0:
                 try:
-                    self.sell(ticker, row.Close, qty)
+                    self.sell(ticker, row.Close, self.positions[ticker][0])
                 except (ValueError, KeyError):
                     pass
 
@@ -86,9 +86,6 @@ class Engine:
         return {"Portfolio Value": self.portfolio_value(last_price),
                 "Profit/Loss": self.profit_loss(last_price)}
     
-    def backtest(self, pred_df, price_df, ticker, holding):
-        
-        return 1
         
 
 if __name__ == "__main__":

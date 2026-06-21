@@ -16,6 +16,7 @@ import pandas as pd
 import numpy as np
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
+from .services import execute_buy, execute_sell
 # Create your views here.
 
 class BuyView(APIView):
@@ -24,32 +25,10 @@ class BuyView(APIView):
         ticker = request.data.get("ticker")
         price = Decimal(request.data.get("price"))
         qty = Decimal(request.data.get("qty"))
-
-        cost = price*qty
         user = self.request.user
         try:
-            portfolio = Portfolio.objects.get(owner = user)
-            if portfolio.cash < cost:
-                raise ValueError("Insufficient Funds")
-            position, created = Position.objects.get_or_create(
-                portfolio= portfolio,
-                ticker= ticker,
-                defaults= {"qty" : 0, "avg_price": 0},
-            )
-            position.avg_price = (position.avg_price*position.qty + cost)/(qty + position.qty)
-            position.qty += qty
-            position.save()
-
-            portfolio.cash -= cost
-            portfolio.save()
-
-            Trade.objects.create(
-                portfolio= portfolio,
-                ticker= ticker,
-                action= "BUY",
-                qty= qty,
-                price= price,
-            )
+            portfolio = Portfolio.objects.get(owner=user)
+            execute_buy(user=user, ticker=ticker, price= price, qty= qty)
             return Response({"status" : "ok", "cash" : portfolio.cash}, status=status.HTTP_200_OK)
         except ValueError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -66,26 +45,8 @@ class SellView(APIView):
         amt = price*qty
         user = self.request.user
         try:
-            portfolio = Portfolio.objects.get(owner = user)
-            position = Position.objects.get(portfolio = portfolio, ticker= ticker)
-            if position.qty < qty:
-                raise ValueError("Insufficient Shares")
-            position.qty -= qty
-            if position.qty == 0:
-                position.delete()
-            else:
-                position.save()
-
-            portfolio.cash += amt
-            portfolio.save()
-
-            Trade.objects.create(
-                portfolio= portfolio,
-                ticker= ticker,
-                action= "SELL",
-                qty= qty,
-                price= price,
-            )
+            portfolio = Portfolio.objects.get(owner= user)
+            execute_sell(user= user, ticker= ticker, price= price, qty= qty)
             return Response({"status": "ok", "cash": portfolio.cash}, status=status.HTTP_200_OK)
         except ValueError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -114,8 +75,19 @@ class PositionView(ListAPIView):
         portfolio = Portfolio.objects.get(owner= self.request.user)
         return Position.objects.filter(portfolio= portfolio)
 
-class RegisterView(CreateAPIView):
-    serializer_class = RegisterSerializer
+class RegisterView(APIView):
+    def post(self, request):
+        data = self.request.data
+        serializer = RegisterSerializer(data= data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
+            "uid": str(user.uid),
+            "username": str(user.username),
+        }, status= status.HTTP_201_CREATED)
 
 class LogInView(APIView):
     def post(self, request):
@@ -182,11 +154,11 @@ class BackTestView(APIView):
             pred_df = pd.read_csv(BASE_DIR/f"data/pred/{ticker}_pred.csv")
             price_df = pd.read_csv(BASE_DIR/f"data/price/{ticker}_price.csv")
 
-            return Response(engine.backtest(pred_df= pred_df, price_df= price_df, ticker= ticker, qty= 10), status=status.HTTP_200_OK)
+            return Response(engine.backtest(pred_df= pred_df, price_df= price_df, ticker= ticker), status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status= status.HTTP_400_BAD_REQUEST)
 
-class PositionBacktest(APIView):
+class PortfolioAllocator(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -273,26 +245,16 @@ class PositionBacktest(APIView):
                     # BuyViews
                     if trade_qty > 0:
                         try:
-                            view_instance = BuyView.as_view()
-                            response = view_instance(drf_internal_request)
-                            
-                            if response.status_code == status.HTTP_200_OK:
-                                trades_executed.append({"ticker": ticker, "action": "BUY", "qty": trade_qty})
-                            else:
-                                failed_trades.append({"ticker": ticker, "action": "BUY", "error": response.data})
+                            execute_buy(user, ticker, price, abs(trade_qty))
+                            trades_executed.append({"ticker": ticker, "action": "BUY", "qty": trade_qty})
                         except Exception as e:
                             failed_trades.append({"ticker": ticker, "action": "BUY", "error": str(e)})
 
                     # SellViews
                     else:
                         try:
-                            view_instance = SellView.as_view()
-                            response = view_instance(drf_internal_request)
-                            
-                            if response.status_code == status.HTTP_200_OK:
-                                trades_executed.append({"ticker": ticker, "action": "SELL", "qty": abs(trade_qty)})
-                            else:
-                                failed_trades.append({"ticker": ticker, "action": "SELL", "error": response.data})
+                            execute_sell(user, ticker, price, abs(trade_qty))
+                            trades_executed.append({"ticker": ticker, "action": "SELL", "qty": abs(trade_qty)})
                         except Exception as e:
                             failed_trades.append({"ticker": ticker, "action": "SELL", "error": str(e)})
 
