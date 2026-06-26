@@ -1,0 +1,1 @@
+Note: This directory will store the predicted BUY/SELL Signals of TICKER over period of 5 years

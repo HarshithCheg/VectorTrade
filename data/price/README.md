@@ -1,0 +1,1 @@
+Note: This directory will store the prices of TICKER over a period of 5 years (from yahoo finance)
