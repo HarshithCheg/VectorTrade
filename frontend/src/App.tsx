@@ -1,11 +1,24 @@
-import './App.css'
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Dashboard from "./pages/Dashboard";
 
-export default function App() {
-  return(
-    <>
-      <div className='grid text-3xl font-bold text-blue-500 place-items-center'>
-        Bonjour. Welcome to VectorTrade
-      </div>
-    </>
-  )
+function App() {
+    const hasToken = !!localStorage.getItem("access_token");
+
+    return (
+        <BrowserRouter>
+            <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route
+                    path="/"
+                    element={<Navigate to={hasToken ? "/dashboard" : "/login"} />}
+                />
+            </Routes>
+        </BrowserRouter>
+    );
 }
+
+export default App;
