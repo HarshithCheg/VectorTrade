@@ -6,6 +6,7 @@ def execute_buy(user, ticker, price, qty):
     price = Decimal(str(price))
     qty = Decimal(str(qty))
     cost = price * qty
+    cost = round(cost, 2)
 
     portfolio = Portfolio.objects.get(owner=user)
     if portfolio.cash < cost:
@@ -17,7 +18,9 @@ def execute_buy(user, ticker, price, qty):
         defaults={"qty": 0, "avg_price": 0},
     )
     position.avg_price = (position.avg_price * position.qty + cost) / (qty + position.qty)
+    position.avg_price = round(position.avg_price, 2)
     position.qty += qty
+    position.qty = round(position.qty, 2)
     position.save()
 
     portfolio.cash -= cost
@@ -37,7 +40,8 @@ def execute_sell(user, ticker, price, qty):
         raise ValueError("Insufficient Shares")
 
     position.qty -= qty
-    if position.qty == 0:
+    position.qty = round(position.qty, 2)
+    if position.qty <= Decimal("0.00"):
         position.delete()
     else:
         position.save()

@@ -172,101 +172,100 @@ class PortfolioAllocator(APIView):
             tickers = []
             prices = []
             util_scores = []
-            bounds = []
+            current_qtys = []
 
-            # Gather prediction values across user's portfolio
             for pos in positions:
                 ticker = pos.ticker
                 current_qty = float(pos.qty)
-
                 load_model(ticker=ticker)
                 pred_df = pd.read_csv(BASE_DIR / f"data/pred/{ticker}_pred.csv")
                 price_df = pd.read_csv(BASE_DIR / f"data/price/{ticker}_price.csv")
-                
                 price_df["Date"] = pd.to_datetime(price_df["Date"])
                 pred_df["Date"] = pd.to_datetime(pred_df["Date"])
-                
                 merged = pd.merge(price_df, pred_df, how="inner", on="Date").sort_values("Date")
                 if merged.empty:
                     continue
-
                 latest_day = merged.iloc[-1]
                 price = float(latest_day["Close"])
                 proba = float(latest_day["Confidence"])
-
-                #Centered score around 0.5 (Scale: -0.5 to +0.5) => helps greatly with Linear Prog.
                 scores = proba - 0.5
 
                 tickers.append(ticker)
                 prices.append(price)
                 util_scores.append(scores)
-                
-                #Bounds mapping: Lower bound is -current_qty (cannot sell more than this), Upper bound is None (no strict upper bounds)
-                bounds.append((-current_qty, None))
+                current_qtys.append(current_qty)
 
             if not tickers:
-                return Response({"error": "No valid token data found"}, status=status.HTTP_400_BAD_REQUEST)
-
-            # Optimization Part: Linear Prog.
-            c = [-s for s in util_scores] # To maximize multiplying with -ve
-            A_ub = [prices]
-            b_ub = [float(portfolio.cash)]
-
-            res = linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=bounds, method='highs')
+                return Response({"error": "No valid ticker data found"}, status=status.HTTP_400_BAD_REQUEST)
 
             trades_executed = []
             failed_trades = []
 
-            # Using existing Views via APIRequestFactory
-            if res.success:
-                factory = APIRequestFactory()
+            # PHASE 1 — Execute all SELLS first for negative-confidence positions
+            for i, ticker in enumerate(tickers):
+                if util_scores[i] < 0 and current_qtys[i] > 0:
+                    try:
+                        execute_sell(user, ticker, prices[i], current_qtys[i])
+                        trades_executed.append({"ticker": ticker, "action": "SELL", "qty": current_qtys[i]})
+                        current_qtys[i] = 0  # now sold, qty is 0
+                    except Exception as e:
+                        failed_trades.append({"ticker": ticker, "action": "SELL", "error": str(e)})
 
-                # Keeping track of current position(i) and quantity(delta_qty)
-                for i, delta_qty in enumerate(res.x):
-                    ticker = tickers[i]
-                    price = prices[i]
-                    
-                    trade_qty = round(delta_qty, 4)
-                    if trade_qty == 0:
-                        continue
+            # Refresh cash AFTER sells — this is the freed-up capital
+            portfolio.refresh_from_db()
+            available_cash = float(portfolio.cash)
 
-                    trade_data = {
-                        "ticker": ticker,
-                        "price": str(price),
-                        "qty": str(abs(trade_qty))
-                    }
+            # PHASE 2 — Solve LP for BUYS only, using updated cash, only positive-confidence tickers
+            buy_indices = [i for i, s in enumerate(util_scores) if s > 0]
+            if buy_indices:
+                buy_tickers = [tickers[i] for i in buy_indices]
+                buy_prices = [prices[i] for i in buy_indices]
+                buy_scores = [util_scores[i] for i in buy_indices]
 
-                    mock_http_req = factory.post(f'/api/trade/', trade_data, format='json')
-                    drf_internal_request = Request(mock_http_req)
-                    
-                    # Passing along the pre-authenticated user profile to skip JWT decoding
-                    drf_internal_request.user = user  # Bypasses authentication without the need of access tokens
+                c = [-s for s in buy_scores]
+                A_ub = [buy_prices]
+                b_ub = [available_cash]
+                bounds = [(0, None) for _ in buy_indices]  # can only buy, qty >= 0
 
-                    # BuyViews
-                    if trade_qty > 0:
+                res = linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=bounds, method='highs')
+
+                if res.success:
+                    for idx, delta_qty in enumerate(res.x):
+                        ticker = buy_tickers[idx]
+                        price = buy_prices[idx]
+                        trade_qty = round(delta_qty, 2)
+                        if trade_qty <= 0:
+                            continue
                         try:
-                            execute_buy(user, ticker, price, abs(trade_qty))
+                            execute_buy(user, ticker, price, trade_qty)
                             trades_executed.append({"ticker": ticker, "action": "BUY", "qty": trade_qty})
                         except Exception as e:
                             failed_trades.append({"ticker": ticker, "action": "BUY", "error": str(e)})
 
-                    # SellViews
-                    else:
-                        try:
-                            execute_sell(user, ticker, price, abs(trade_qty))
-                            trades_executed.append({"ticker": ticker, "action": "SELL", "qty": abs(trade_qty)})
-                        except Exception as e:
-                            failed_trades.append({"ticker": ticker, "action": "SELL", "error": str(e)})
+            portfolio.refresh_from_db()
+            return Response({
+                "status": "Optimization processing complete",
+                "trades_successful": trades_executed,
+                "trades_failed": failed_trades,
+                "remaining_cash": portfolio.cash
+            }, status=status.HTTP_200_OK)
 
-                portfolio.refresh_from_db()
-                return Response({
-                    "status": "Optimization processing complete",
-                    "trades_successful": trades_executed,
-                    "trades_failed": failed_trades,
-                    "remaining_cash": portfolio.cash
-                }, status=status.HTTP_200_OK)
-            else:
-                return Response({"error": f"Optimization failed: {res.message}"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+class LatestPriceView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        try:
+            ticker = request.data.get("ticker")
+            load_model(ticker)  # ensures price csv exists, auto-trains if needed
+            df = pd.read_csv(BASE_DIR / f"data/price/{ticker}_price.csv")
+            latest_price = float(df.iloc[-1]["Close"])
+            latest_date = str(df.iloc[-1]["Date"])
+            return Response({
+                "ticker": ticker,
+                "price": latest_price,
+                "date": latest_date
+            }, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
